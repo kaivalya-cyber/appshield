@@ -1,0 +1,14 @@
+{
+  "ignore": [
+    "node_modules",
+    "dist",
+    "build",
+    "*.test.ts",
+    "*.test.js",
+    "*.spec.ts",
+    "*.spec.js"
+  ],
+  "severity": "medium",
+  "rules": [],
+  "output": "terminal"
+}

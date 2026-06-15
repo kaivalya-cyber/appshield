@@ -1,0 +1,30 @@
+{
+  "name": "appshield",
+  "version": "1.0.0",
+  "description": "AI-powered security scanner CLI that uses Claude to find vulnerabilities in your code",
+  "main": "dist/index.js",
+  "bin": {
+    "appshield": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src/",
+    "test": "jest"
+  },
+  "keywords": ["security", "scanner", "cli", "vulnerability", "ai", "claude"],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "ora": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.0"
+  }
+}

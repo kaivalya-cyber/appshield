@@ -1,0 +1,1 @@
+{"version":3,"file":"reporter.d.ts","sourceRoot":"","sources":["../src/reporter.ts"],"names":[],"mappings":"AAEA,OAAO,EAAE,UAAU,EAA2B,MAAM,SAAS,CAAC;AAsB9D,wBAAgB,cAAc,CAAC,MAAM,EAAE,UAAU,GAAG,IAAI,CAkDvD;AAqED,wBAAgB,UAAU,CAAC,MAAM,EAAE,UAAU,GAAG,MAAM,CAErD;AAID,wBAAgB,UAAU,CAAC,MAAM,EAAE,UAAU,GAAG,MAAM,CAuOrD;AAeD,wBAAgB,gBAAgB,IAAI,IAAI,CAgCvC"}
