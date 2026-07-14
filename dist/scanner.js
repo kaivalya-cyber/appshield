@@ -37,6 +37,7 @@ exports.scan = scan;
 exports.writeFixedFiles = writeFixedFiles;
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
+const crypto = __importStar(require("crypto"));
 const rules_1 = require("./rules");
 const analyzer_1 = require("./analyzer");
 // Always skip these directories and file patterns
@@ -56,6 +57,47 @@ const ALWAYS_SKIP_PATTERNS = [
     /\.mp3$/i, /\.mp4$/i, /\.mov$/i, /\.avi$/i,
     /\.wasm$/i,
 ];
+// ─── Crypto & hashing helpers ──────────────────────────────────────────────
+function simpleSHA256(content) {
+    return crypto.createHash('sha256').update(content).digest('hex');
+}
+function hashSnippet(snippet) {
+    return simpleSHA256(snippet.trim());
+}
+// ─── Cache (incremental scan) helpers ──────────────────────────────────────
+async function loadCache(projectPath) {
+    try {
+        const cachePath = path.join(projectPath, '.appshield-cache.json');
+        const content = await fs.readFile(cachePath, 'utf-8');
+        const data = JSON.parse(content);
+        return data.fileHashes || {};
+    }
+    catch {
+        return {};
+    }
+}
+async function saveCache(projectPath, fileHashes) {
+    const cachePath = path.join(projectPath, '.appshield-cache.json');
+    const cacheData = {
+        version: '1.0.0',
+        lastScanAt: new Date().toISOString(),
+        fileHashes,
+    };
+    await fs.writeFile(cachePath, JSON.stringify(cacheData, null, 2), 'utf-8');
+}
+// ─── Baseline helpers ──────────────────────────────────────────────────────
+async function loadBaseline(baselinePath, basePath) {
+    try {
+        const finalPath = baselinePath || path.join(basePath, '.appshield-baseline.json');
+        const content = await fs.readFile(finalPath, 'utf-8');
+        const data = JSON.parse(content);
+        return Array.isArray(data.entries) ? data.entries : [];
+    }
+    catch {
+        return [];
+    }
+}
+// ─── File discovery ────────────────────────────────────────────────────────
 /**
  * Check if a file is likely binary by reading first 8KB and looking for null bytes.
  */
@@ -79,11 +121,13 @@ async function isBinary(filePath) {
  * Check if a path matches any of the ignore patterns.
  */
 function matchesIgnorePattern(filePath, patterns) {
+    const basename = path.basename(filePath);
     for (const pattern of patterns) {
-        // Simple glob matching: support * and direct string matching
         if (pattern.startsWith('*')) {
-            // e.g. *.test.ts → match files ending with .test.ts
+            // Glob-like pattern: check against basename (e.g. *.test.ts)
             const suffix = pattern.slice(1);
+            if (basename.endsWith(suffix))
+                return true;
             if (filePath.endsWith(suffix))
                 return true;
         }
@@ -118,7 +162,6 @@ async function walkDirectory(dir, ignorePatterns, basePath) {
             files.push(...subFiles);
         }
         else if (entry.isFile()) {
-            // Skip always-skip patterns
             if (ALWAYS_SKIP_PATTERNS.some(p => p.test(entry.name)))
                 continue;
             if (matchesIgnorePattern(relativePath, ignorePatterns))
@@ -162,13 +205,12 @@ function chunkCode(code) {
         chunks.push(lines.slice(start, end).join('\n'));
         if (end >= lines.length)
             break;
-        start = end - overlap; // Overlap for context continuity
+        start = end - overlap;
     }
     return chunks;
 }
 /**
  * Simple promise pool for concurrent API calls.
- * Runs up to `concurrency` tasks at a time.
  */
 async function promisePool(tasks, concurrency) {
     const results = [];
@@ -189,6 +231,12 @@ async function promisePool(tasks, concurrency) {
 async function scan(targetPath, options, onProgress) {
     const startTime = Date.now();
     const resolvedPath = path.resolve(targetPath);
+    // Quiet-mode-aware progress helper
+    const progress = (msg) => {
+        if (!options.quiet && onProgress) {
+            onProgress(msg);
+        }
+    };
     // Check if path exists
     let stat;
     try {
@@ -207,7 +255,6 @@ async function scan(targetPath, options, onProgress) {
     }
     else if (stat.isDirectory()) {
         basePath = resolvedPath;
-        // Load ignore patterns
         const fileIgnore = await loadIgnoreFile(resolvedPath);
         const allIgnorePatterns = [...options.ignore, ...fileIgnore];
         filePaths = await walkDirectory(resolvedPath, allIgnorePatterns, basePath);
@@ -220,11 +267,17 @@ async function scan(targetPath, options, onProgress) {
     const textFiles = [];
     for (const fp of filePaths) {
         if (!(await isBinary(fp))) {
+            // Apply --ext filter if provided
+            if (options.extensions.length > 0) {
+                const ext = path.extname(fp).toLowerCase();
+                if (!options.extensions.includes(ext))
+                    continue;
+            }
             textFiles.push(fp);
         }
     }
     if (textFiles.length === 0) {
-        onProgress?.('No scannable files found.');
+        progress('No scannable files found.');
         return {
             projectPath: targetPath,
             totalFiles: 0,
@@ -235,12 +288,21 @@ async function scan(targetPath, options, onProgress) {
             lowCount: 0,
             results: [],
             durationMs: Date.now() - startTime,
+            newFindings: 0,
+            suppressedCount: 0,
         };
     }
     // Get selected rules
     const selectedRules = (0, rules_1.getRulesByIds)(options.rules);
+    // ─── Incremental scan: load cache and hash files ────────────────────────
+    let oldCache = {};
+    if (options.incremental) {
+        oldCache = await loadCache(basePath);
+    }
+    const newCache = {};
     // Build scan tasks: file × rule × chunk combinations
     const tasks = [];
+    let skippedByCache = 0;
     for (const filePath of textFiles) {
         const ext = path.extname(filePath).toLowerCase();
         const relativePath = path.relative(basePath, filePath);
@@ -253,6 +315,14 @@ async function scan(targetPath, options, onProgress) {
         }
         catch (err) {
             console.warn(`⚠ Cannot read file: ${relativePath} — ${err.message}`);
+            continue;
+        }
+        // Compute hash for incremental cache
+        const fileHash = simpleSHA256(code);
+        newCache[relativePath] = fileHash;
+        // Skip unchanged files in incremental mode
+        if (options.incremental && oldCache[relativePath] === fileHash) {
+            skippedByCache++;
             continue;
         }
         const chunks = chunkCode(code);
@@ -269,20 +339,51 @@ async function scan(targetPath, options, onProgress) {
             }
         }
     }
-    onProgress?.(`Scanning ${textFiles.length} files with ${selectedRules.length} rules (${tasks.length} analysis tasks)...`);
-    // Execute tasks with concurrency pool (max 3 parallel)
+    // Save updated cache (including entries for unchanged files)
+    if (options.incremental) {
+        for (const filePath of textFiles) {
+            const relativePath = path.relative(basePath, filePath);
+            if (!newCache[relativePath] && oldCache[relativePath]) {
+                newCache[relativePath] = oldCache[relativePath];
+            }
+        }
+        await saveCache(basePath, newCache);
+    }
+    if (options.incremental && skippedByCache > 0) {
+        progress(`Skipped ${skippedByCache} unchanged files (incremental scan).`);
+    }
+    if (tasks.length === 0) {
+        progress('All files unchanged since last scan — nothing to analyze.');
+        return {
+            projectPath: targetPath,
+            totalFiles: textFiles.length,
+            totalVulnerabilities: 0,
+            criticalCount: 0,
+            highCount: 0,
+            mediumCount: 0,
+            lowCount: 0,
+            results: [],
+            durationMs: Date.now() - startTime,
+            newFindings: 0,
+            suppressedCount: 0,
+        };
+    }
+    progress(`Scanning ${textFiles.length} files with ${selectedRules.length} rules (${tasks.length} analysis tasks)...`);
+    // Execute tasks with configurable concurrency pool
     let completed = 0;
     const taskFunctions = tasks.map(task => async () => {
         const result = await (0, analyzer_1.analyzeCode)(task.code, task.relativePath, task.rule, options.debug);
         completed++;
         if (completed % 5 === 0 || completed === tasks.length) {
-            onProgress?.(`Progress: ${completed}/${tasks.length} tasks completed`);
+            const percent = Math.round((completed / tasks.length) * 100);
+            progress(`Progress: ${percent}% (${completed}/${tasks.length})`);
         }
         return { task, result };
     });
-    const results = await promisePool(taskFunctions, 3);
-    // Group results by file
+    const results = await promisePool(taskFunctions, options.concurrency || 3);
+    // ─── Group results by file with deduplication ───────────────────────────
     const fileResults = new Map();
+    const uniqueFindingKeys = new Set();
     for (const { task, result } of results) {
         if (!fileResults.has(task.relativePath)) {
             fileResults.set(task.relativePath, {
@@ -293,9 +394,19 @@ async function scan(targetPath, options, onProgress) {
             });
         }
         const fileResult = fileResults.get(task.relativePath);
-        fileResult.vulnerabilities.push(...result.vulnerabilities);
+        for (const vuln of result.vulnerabilities) {
+            const snippetHash = hashSnippet(vuln.snippet);
+            const dedupKey = `${vuln.rule}:${task.relativePath}:${snippetHash}`;
+            if (!uniqueFindingKeys.has(dedupKey)) {
+                uniqueFindingKeys.add(dedupKey);
+                fileResult.vulnerabilities.push(vuln);
+            }
+        }
         fileResult.tokensUsed += result.tokensUsed;
     }
+    // ─── Load baseline and filter suppressed findings ───────────────────────
+    const baselineEntries = await loadBaseline(options.baseline, basePath);
+    let suppressedCount = 0;
     // Build severity filter
     const severityOrder = {
         critical: 4,
@@ -305,13 +416,32 @@ async function scan(targetPath, options, onProgress) {
         info: 0,
     };
     const minSeverity = severityOrder[options.severity] || 0;
-    // Filter vulnerabilities by severity threshold
-    const allResults = Array.from(fileResults.values()).map(result => ({
-        ...result,
-        vulnerabilities: result.vulnerabilities.filter(v => (severityOrder[v.severity] || 0) >= minSeverity),
-    }));
-    // Count by severity
-    const allVulns = allResults.flatMap(r => r.vulnerabilities);
+    // Filter: severity threshold + baseline suppression
+    const allFilteredResults = Array.from(fileResults.values()).map(result => {
+        const activeVulns = [];
+        for (const v of result.vulnerabilities) {
+            // Severity threshold check
+            if ((severityOrder[v.severity] || 0) < minSeverity) {
+                continue;
+            }
+            // Baseline suppression check
+            const snippetHash = hashSnippet(v.snippet);
+            const isSuppressed = baselineEntries.some(entry => entry.id === v.id ||
+                (entry.rule === v.rule && entry.file === result.file && entry.snippetHash === snippetHash));
+            if (isSuppressed) {
+                suppressedCount++;
+            }
+            else {
+                activeVulns.push(v);
+            }
+        }
+        return {
+            ...result,
+            vulnerabilities: activeVulns,
+        };
+    });
+    // Build report
+    const allVulns = allFilteredResults.flatMap(r => r.vulnerabilities);
     const report = {
         projectPath: targetPath,
         totalFiles: textFiles.length,
@@ -320,8 +450,10 @@ async function scan(targetPath, options, onProgress) {
         highCount: allVulns.filter(v => v.severity === 'high').length,
         mediumCount: allVulns.filter(v => v.severity === 'medium').length,
         lowCount: allVulns.filter(v => v.severity === 'low').length,
-        results: allResults.filter(r => r.vulnerabilities.length > 0),
+        results: allFilteredResults.filter(r => r.vulnerabilities.length > 0),
         durationMs: Date.now() - startTime,
+        newFindings: allVulns.length,
+        suppressedCount,
     };
     return report;
 }
@@ -345,7 +477,6 @@ async function writeFixedFiles(report, basePath) {
         let patchedCode = code;
         for (const vuln of result.vulnerabilities) {
             if (vuln.snippet && vuln.fix) {
-                // Simple text replacement — replace first occurrence
                 const idx = patchedCode.indexOf(vuln.snippet);
                 if (idx !== -1) {
                     patchedCode =

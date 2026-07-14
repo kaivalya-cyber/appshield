@@ -1,4 +1,5 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type OutputFormat = 'terminal' | 'json' | 'html' | 'sarif' | 'markdown' | 'csv' | 'junit';
 export interface Vulnerability {
     id: string;
     rule: string;
@@ -28,6 +29,8 @@ export interface ScanReport {
     lowCount: number;
     results: ScanResult[];
     durationMs: number;
+    newFindings?: number;
+    suppressedCount?: number;
 }
 export interface Rule {
     id: string;
@@ -40,18 +43,114 @@ export interface Rule {
     owasp?: string;
 }
 export interface ScanOptions {
-    output: 'terminal' | 'json' | 'html';
+    output: OutputFormat;
     severity: Severity;
     rules: string[];
     ignore: string[];
+    extensions: string[];
     fix: boolean;
     ci: boolean;
     debug: boolean;
+    concurrency: number;
+    baseline?: string;
+    incremental?: boolean;
+    quiet: boolean;
+    watch?: boolean;
 }
 export interface AppShieldConfig {
     ignore: string[];
     severity: Severity;
     rules: string[];
-    output: 'terminal' | 'json' | 'html';
+    output: OutputFormat;
+    concurrency: number;
+    baseline?: string;
+}
+/** A single suppressed finding in the baseline */
+export interface BaselineEntry {
+    id: string;
+    rule: string;
+    file: string;
+    snippetHash: string;
+    reason: string;
+    suppressedAt: string;
+}
+/** Contents of .appshield-baseline.json */
+export interface Baseline {
+    version: string;
+    projectPath: string;
+    entries: BaselineEntry[];
+}
+/** Metadata stored in .appshield-cache.json for incremental scans */
+export interface ScanCache {
+    version: string;
+    lastScanAt: string;
+    fileHashes: Record<string, string>;
+}
+/** Describes a finding in SARIF format for GitHub Code Scanning */
+export interface SarifReport {
+    $schema: string;
+    version: string;
+    runs: SarifRun[];
+}
+export interface SarifRun {
+    tool: {
+        driver: {
+            name: string;
+            version: string;
+            informationUri: string;
+            rules: SarifRule[];
+        };
+    };
+    results: SarifResult[];
+    artifacts: SarifArtifact[];
+}
+export interface SarifRule {
+    id: string;
+    shortDescription: {
+        text: string;
+    };
+    fullDescription: {
+        text: string;
+    };
+    defaultConfiguration: {
+        level: string;
+    };
+    properties: {
+        tags: string[];
+        cwe?: string;
+        owasp?: string;
+    };
+}
+export interface SarifResult {
+    ruleId: string;
+    level: string;
+    message: {
+        text: string;
+    };
+    locations: SarifLocation[];
+    partialFingerprints?: {
+        primaryLocationLineHash?: string;
+    };
+}
+export interface SarifLocation {
+    physicalLocation: {
+        artifactLocation: {
+            uri: string;
+        };
+        region?: {
+            startLine?: number;
+        };
+    };
+}
+export interface SarifArtifact {
+    location: {
+        uri: string;
+    };
+}
+/** Deduplication key for findings */
+export interface FindingKey {
+    rule: string;
+    file: string;
+    snippetHash: string;
 }
 //# sourceMappingURL=types.d.ts.map
