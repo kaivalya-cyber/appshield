@@ -39,7 +39,7 @@
     "ora": "^5.4.1"
   },
   "devDependencies": {
-    "@types/chokidar": "^1.7.5",
+    "@types/chokidar": "^2.1.7",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.17.0",
     "@typescript-eslint/eslint-plugin": "^8.64.0",
