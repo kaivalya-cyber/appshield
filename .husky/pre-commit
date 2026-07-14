@@ -1,0 +1,2 @@
+echo "🔍 Running typecheck..."
+npx tsc --noEmit && echo "🧪 Running tests..." && npm test

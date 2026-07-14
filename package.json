@@ -11,7 +11,14 @@
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "lint": "eslint src/",
-    "test": "jest"
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky",
+    "release": "standard-version",
+    "release:minor": "standard-version --release-as minor",
+    "release:major": "standard-version --release-as major",
+    "release:patch": "standard-version --release-as patch",
+    "release:first": "standard-version --first-release"
   },
   "keywords": [
     "security",
@@ -33,7 +40,9 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^20.17.0",
+    "husky": "^9.1.7",
     "jest": "^30.4.2",
+    "standard-version": "^9.5.0",
     "ts-jest": "^29.4.11",
     "typescript": "^5.7.0"
   }
