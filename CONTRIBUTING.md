@@ -67,6 +67,20 @@ git push --follow-tags
 
 GitHub Actions will auto-publish to npm and create a GitHub release.
 
+## Branch Protection
+
+For repository maintainers, configure branch protection on `main`:
+
+1. Go to **Settings → Branches → Add rule**
+2. Set branch name pattern: `main`
+3. Enable:
+   - ✅ **Require a pull request before merging** (with 1 approval)
+   - ✅ **Require status checks to pass before merging** (`build-and-test (18)`, `build-and-test (20)`, `build-and-test (22)`)
+   - ✅ **Require conversation resolution before merging**
+   - ✅ **Do not allow bypassing the above settings** (include administrators)
+
+These settings ensure every change passes CI and gets reviewed before landing.
+
 ## Questions?
 
 Open an issue or start a discussion!
