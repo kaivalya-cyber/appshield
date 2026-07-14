@@ -40,6 +40,23 @@ export function getRulesByIds(ids: string[]): Rule[] {
   return allRules.filter(r => ids.includes(r.id));
 }
 
+/** Named presets that select rule subsets */
+export const RULESET_PRESETS: Record<string, string[]> = {
+  'owasp-top10': [
+    'sql-injection', 'xss', 'injection', 'insecure-deserialization',
+    'secrets', 'auth', 'idor', 'csrf', 'ssrf', 'weak-crypto',
+  ],
+  'critical-only': ['sql-injection', 'xss', 'injection', 'insecure-deserialization'],
+  'web-app': [
+    'sql-injection', 'xss', 'injection', 'secrets', 'auth',
+    'idor', 'csrf', 'ssrf', 'headers', 'open-redirect',
+  ],
+};
+
+export function resolvePreset(preset: string): string[] | undefined {
+  return RULESET_PRESETS[preset];
+}
+
 export function getApplicableRules(fileExtension: string, selectedRules: Rule[]): Rule[] {
   return selectedRules.filter(rule => {
     if (rule.fileExtensions.includes('.*')) return true;

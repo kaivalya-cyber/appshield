@@ -264,6 +264,11 @@ export async function scan(
   const textFiles: string[] = [];
   for (const fp of filePaths) {
     if (!(await isBinary(fp))) {
+      // Apply --ext filter if provided
+      if (options.extensions.length > 0) {
+        const ext = path.extname(fp).toLowerCase();
+        if (!options.extensions.includes(ext)) continue;
+      }
       textFiles.push(fp);
     }
   }

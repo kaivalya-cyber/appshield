@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { config } from 'dotenv';
-import { resolve, join } from 'path';
-import { existsSync, statSync } from 'fs';
+import { resolve, join, extname, basename } from 'path';
+import { existsSync, statSync, watch } from 'fs';
 import { writeFile, readFile } from 'fs/promises';
 import { createHash } from 'crypto';
 import { Command } from 'commander';
@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { ScanOptions, AppShieldConfig } from './types';
 import { scan, writeFixedFiles } from './scanner';
+import { resolvePreset } from './rules';
 import {
   reportTerminal,
   reportJSON,
@@ -57,6 +58,9 @@ program
   .option('--baseline <path>', 'Path to baseline file for suppressing known false positives')
   .option('--incremental', 'Only scan files that changed since last scan', false)
   .option('-q, --quiet', 'Suppress progress output, only show final report', false)
+  .option('--ext <extensions>', 'Comma-separated file extensions to scan (e.g. .ts,.js)')
+  .option('--preset <name>', 'Ruleset preset: owasp-top10, critical-only, web-app')
+  .option('-w, --watch', 'Watch for file changes and re-scan', false)
   .action(async (targetPath: string, opts: any) => {
     // ─── Load .appshield.json config ──────────────────────────────────────
     let config: Partial<AppShieldConfig> = {};
@@ -82,13 +86,29 @@ program
     // Parse CLI arrays
     const cliRules = opts.rules ? opts.rules.split(',').map((r: string) => r.trim()) : undefined;
     const cliIgnore = opts.ignore ? opts.ignore.split(',').map((p: string) => p.trim()) : [];
+    const cliExt = opts.ext ? opts.ext.split(',').map((e: string) => {
+      e = e.trim().toLowerCase();
+      return e.startsWith('.') ? e : '.' + e;
+    }) : [];
+
+    // Resolve preset if provided (adds to any explicit --rules)
+    const presetRules: string[] = [];
+    if (opts.preset) {
+      const resolved = resolvePreset(opts.preset);
+      if (!resolved) {
+        console.error(chalk.red(`❌ Unknown preset: ${opts.preset}. Use: owasp-top10, critical-only, web-app`));
+        process.exit(1);
+      }
+      presetRules.push(...resolved);
+    }
 
     // Build ScanOptions (CLI overrides config, config overrides defaults)
     const options: ScanOptions = {
       output: opts.output ?? config.output ?? 'terminal',
       severity: opts.severity ?? config.severity ?? 'medium',
-      rules: cliRules ?? config.rules ?? [],
+      rules: [...new Set([...(cliRules ?? config.rules ?? []), ...presetRules])],
       ignore: Array.from(new Set([...(config.ignore || []), ...cliIgnore])),
+      extensions: cliExt,
       fix: opts.fix || false,
       ci: opts.ci || false,
       debug: opts.debug || false,
@@ -96,6 +116,7 @@ program
       baseline: opts.baseline ?? config.baseline ?? undefined,
       incremental: opts.incremental || false,
       quiet: opts.quiet || false,
+      watch: opts.watch || false,
     };
 
     // Validate output format
@@ -204,6 +225,65 @@ program
       // CI mode: exit with code 1 if vulnerabilities found
       if (options.ci && report.totalVulnerabilities > 0) {
         process.exit(1);
+      }
+
+      // ─── Watch mode: re-scan on file changes (debounced) ───────────
+      if (options.watch) {
+        const targetAbs = resolve(targetPath);
+        const isDir = statSync(targetAbs).isDirectory();
+        const targetBasename = isDir ? null : basename(targetAbs);
+        const watchDir = isDir ? targetAbs : resolve(targetAbs, '..');
+
+        console.log(chalk.gray(`\n  👀 Watching for changes in ${watchDir}...`));
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          console.log(chalk.gray('  Note: subdirectory watching may be limited. Use polling for full support.'));
+        }
+        console.log(chalk.gray('  Press Ctrl+C to stop.\n'));
+
+        // Debounce: wait 2s after last change before re-scanning
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+        let scanning = false;
+
+        watch(watchDir, { recursive: true }, (_event, filename) => {
+          if (!filename) return;
+
+          // Filter by extension
+          const ext = extname(filename).toLowerCase();
+          if (options.extensions.length > 0 && !options.extensions.includes(ext)) return;
+
+          // For single-file watch, ignore changes to other files
+          if (!isDir && filename !== targetBasename) return;
+
+          // Reset debounce timer
+          if (debounceTimer) clearTimeout(debounceTimer);
+
+          debounceTimer = setTimeout(async () => {
+            if (scanning) return;
+            scanning = true;
+
+            console.log(chalk.cyan(`\n  🔄 Change detected: ${filename}`));
+            console.log(chalk.gray('  Re-scanning...\n'));
+
+            try {
+              const newReport = await scan(targetPath, options, (msg) => {
+                if (!options.quiet) console.log(chalk.gray(`  ${msg}`));
+              });
+
+              if (newReport.totalVulnerabilities > 0) {
+                console.log(chalk.red.bold(`  ⚠ ${newReport.totalVulnerabilities} finding(s) after re-scan`));
+              } else {
+                console.log(chalk.green.bold('  ✓ No findings'));
+              }
+            } catch (err: any) {
+              console.error(chalk.red(`  ❌ Scan error: ${err.message}`));
+            } finally {
+              scanning = false;
+            }
+          }, 2000); // 2-second debounce
+        });
+
+        // Keep process alive
+        await new Promise(() => {});
       }
 
     } catch (error: any) {

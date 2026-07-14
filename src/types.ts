@@ -53,6 +53,7 @@ export interface ScanOptions {
   severity: Severity;
   rules: string[];
   ignore: string[];
+  extensions: string[];        // Only scan files with these extensions (empty = all)
   fix: boolean;
   ci: boolean;
   debug: boolean;
@@ -60,6 +61,7 @@ export interface ScanOptions {
   baseline?: string;           // Path to baseline file for suppression
   incremental?: boolean;       // Only scan files changed since last scan
   quiet: boolean;              // Suppress progress output, only show report
+  watch?: boolean;             // Watch for file changes and re-scan
 }
 
 export interface AppShieldConfig {

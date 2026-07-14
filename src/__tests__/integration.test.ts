@@ -36,6 +36,7 @@ function defaultOptions(overrides: Partial<ScanOptions> = {}): ScanOptions {
     severity: 'medium',
     rules: [],
     ignore: [],
+    extensions: [],
     fix: false,
     ci: false,
     debug: false,
