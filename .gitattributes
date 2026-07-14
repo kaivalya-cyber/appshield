@@ -1,0 +1,47 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Source code
+*.ts text eol=lf
+*.js text eol=lf
+*.tsx text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+
+# Config files
+.env.example text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.npmignore text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.wasm binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.pdf binary
+*.mp3 binary
+*.mp4 binary
+
+# Lock files
+package-lock.json text eol=lf -diff

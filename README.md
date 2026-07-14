@@ -1,5 +1,10 @@
 # 🛡️ AppShield — AI Security Scanner CLI
 
+[![CI](https://github.com/yourusername/appshield/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/appshield/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/appshield)](https://www.npmjs.com/package/appshield)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
+
 **AppShield** scans your source code for security vulnerabilities using Claude AI. It produces structured reports with severity ratings, explanations, and patched code suggestions — so you can ship fast without shipping exploits.
 
 Built for developers who vibe-code and need a safety net.
