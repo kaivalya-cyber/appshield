@@ -1,0 +1,26 @@
+# Code owners automatically requested for review on PRs.
+# Last matching pattern takes precedence.
+
+# Core CLI and scanner
+/src/index.ts @yourusername
+/src/scanner.ts @yourusername
+/src/analyzer.ts @yourusername
+/src/reporter.ts @yourusername
+/src/types.ts @yourusername
+
+# Security rules
+/src/rules/ @yourusername
+
+# Workflows and CI
+/.github/ @yourusername
+
+# Root config
+/package.json @yourusername
+/tsconfig.json @yourusername
+/jest.config.js @yourusername
+
+# Documentation
+/README.md @yourusername
+/CONTRIBUTING.md @yourusername
+/CHANGELOG.md @yourusername
+/SECURITY.md @yourusername
