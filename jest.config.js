@@ -3,8 +3,9 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.ts', '**/*.test.ts'],
+  testPathIgnorePatterns: ['/fixtures/'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  collectCoverageFrom: ['src/**/*.ts', '!src/index.ts'],
+  collectCoverageFrom: ['src/**/*.ts', '!src/index.ts', '!src/__tests__/fixtures/**'],
   coverageThreshold: {
     global: {
       branches: 50,
