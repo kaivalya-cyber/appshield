@@ -9,6 +9,10 @@
 
 Built for developers who vibe-code and need a safety net.
 
+> Add this badge to your own repo to show you use AppShield:
+> 
+> [![AppShield](https://img.shields.io/badge/scanned%20by-AppShield-7c3aed)](https://github.com/kaivalya-cyber/appshield)
+
 ---
 
 ## Quick Start
