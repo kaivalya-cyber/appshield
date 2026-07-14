@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  appshield:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: appshield:latest
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-your_key_here}
+    volumes:
+      # Mount the directory you want to scan
+      - ./:/scan-target:ro
+      # Mount config files from host
+      - ./.appshield.json:/app/.appshield.json:ro
+      - ./.appshield-baseline.json:/app/.appshield-baseline.json:ro
+      - ./.appshieldignore:/app/.appshieldignore:ro
+    working_dir: /scan-target
+
+  # ─── Example CI service ───────────────────────────────────────────────────
+  ci-scan:
+    profiles: ['ci']
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: appshield:latest
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - ./:/scan-target:ro
+    working_dir: /scan-target
+    command: scan /scan-target --ci --severity high --output sarif --quiet

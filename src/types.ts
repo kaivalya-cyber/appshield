@@ -1,5 +1,7 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
+export type OutputFormat = 'terminal' | 'json' | 'html' | 'sarif' | 'markdown' | 'csv' | 'junit';
+
 export interface Vulnerability {
   id: string;                  // e.g. "SQL_001"
   rule: string;                // e.g. "sql-injection"
@@ -31,6 +33,8 @@ export interface ScanReport {
   lowCount: number;
   results: ScanResult[];
   durationMs: number;
+  newFindings?: number;        // Count of findings not in baseline
+  suppressedCount?: number;    // Count of findings suppressed by baseline
 }
 
 export interface Rule {
@@ -45,18 +49,106 @@ export interface Rule {
 }
 
 export interface ScanOptions {
-  output: 'terminal' | 'json' | 'html';
+  output: OutputFormat;
   severity: Severity;
   rules: string[];
   ignore: string[];
   fix: boolean;
   ci: boolean;
   debug: boolean;
+  concurrency: number;         // Number of parallel API calls (default: 3)
+  baseline?: string;           // Path to baseline file for suppression
+  incremental?: boolean;       // Only scan files changed since last scan
+  quiet: boolean;              // Suppress progress output, only show report
 }
 
 export interface AppShieldConfig {
   ignore: string[];
   severity: Severity;
   rules: string[];
-  output: 'terminal' | 'json' | 'html';
+  output: OutputFormat;
+  concurrency: number;
+  baseline?: string;
+}
+
+/** A single suppressed finding in the baseline */
+export interface BaselineEntry {
+  id: string;                  // Matches Vulnerability.id
+  rule: string;                // Rule identifier
+  file: string;                // File path at time of suppression
+  snippetHash: string;         // SHA256 of the suppressed snippet
+  reason: string;              // Why this was suppressed
+  suppressedAt: string;        // ISO date string
+}
+
+/** Contents of .appshield-baseline.json */
+export interface Baseline {
+  version: string;
+  projectPath: string;
+  entries: BaselineEntry[];
+}
+
+/** Metadata stored in .appshield-cache.json for incremental scans */
+export interface ScanCache {
+  version: string;
+  lastScanAt: string;
+  fileHashes: Record<string, string>;  // relativePath → sha256 hash
+}
+
+/** Describes a finding in SARIF format for GitHub Code Scanning */
+export interface SarifReport {
+  $schema: string;
+  version: string;
+  runs: SarifRun[];
+}
+
+export interface SarifRun {
+  tool: {
+    driver: {
+      name: string;
+      version: string;
+      informationUri: string;
+      rules: SarifRule[];
+    };
+  };
+  results: SarifResult[];
+  artifacts: SarifArtifact[];
+}
+
+export interface SarifRule {
+  id: string;
+  shortDescription: { text: string };
+  fullDescription: { text: string };
+  defaultConfiguration: { level: string };
+  properties: {
+    tags: string[];
+    cwe?: string;
+    owasp?: string;
+  };
+}
+
+export interface SarifResult {
+  ruleId: string;
+  level: string;
+  message: { text: string };
+  locations: SarifLocation[];
+  partialFingerprints?: { primaryLocationLineHash?: string };
+}
+
+export interface SarifLocation {
+  physicalLocation: {
+    artifactLocation: { uri: string };
+    region?: { startLine?: number };
+  };
+}
+
+export interface SarifArtifact {
+  location: { uri: string };
+}
+
+/** Deduplication key for findings */
+export interface FindingKey {
+  rule: string;
+  file: string;
+  snippetHash: string;
 }

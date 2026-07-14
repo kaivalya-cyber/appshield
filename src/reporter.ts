@@ -50,6 +50,16 @@ export function reportTerminal(report: ScanReport): void {
 
   console.log(`    ${summary}`);
   console.log('');
+
+  // Show suppressed count if any
+  if (report.suppressedCount && report.suppressedCount > 0) {
+    console.log(chalk.gray(`    ${report.suppressedCount} finding(s) suppressed by baseline`));
+    if (report.newFindings !== undefined) {
+      console.log(chalk.gray(`    ${report.newFindings} new finding(s)`));
+    }
+    console.log('');
+  }
+
   console.log(chalk.gray('  ══════════════════════════════════════════'));
 
   if (report.totalVulnerabilities === 0) {
@@ -145,6 +155,283 @@ export function reportJSON(report: ScanReport): string {
   return JSON.stringify(report, null, 2);
 }
 
+// ─── SARIF reporter (GitHub Code Scanning) ─────────────────────────────────
+
+export function reportSARIF(report: ScanReport): string {
+  const rulesMap = new Map<string, any>();
+
+  // Collect unique rules
+  const uniqueRules: any[] = [];
+  for (const result of report.results) {
+    for (const vuln of result.vulnerabilities) {
+      if (!rulesMap.has(vuln.rule)) {
+        const rule = {
+          id: vuln.rule,
+          shortDescription: { text: vuln.title },
+          fullDescription: { text: vuln.description },
+          defaultConfiguration: { level: severityToSarifLevel(vuln.severity) },
+          properties: {
+            tags: ['security', vuln.severity],
+            ...(vuln.cwe ? { cwe: vuln.cwe } : {}),
+            ...(vuln.owasp ? { owasp: vuln.owasp } : {}),
+          },
+        };
+        uniqueRules.push(rule);
+        rulesMap.set(vuln.rule, true);
+      }
+    }
+  }
+
+  // Collect artifacts
+  const artifactsMap = new Map<string, number>();
+  for (const result of report.results) {
+    if (!artifactsMap.has(result.file)) {
+      artifactsMap.set(result.file, artifactsMap.size);
+    }
+  }
+
+  const artifacts = Array.from(artifactsMap.keys()).map(uri => ({
+    location: { uri },
+  }));
+
+  // Build results
+  const sarifResults = report.results.flatMap(result =>
+    result.vulnerabilities.map(vuln => ({
+      ruleId: vuln.rule,
+      level: severityToSarifLevel(vuln.severity),
+      message: {
+        text: `${vuln.title}\n\n${vuln.description}\n\nFix: ${vuln.fix}`,
+      },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri: result.file },
+            ...(vuln.line ? { region: { startLine: vuln.line } } : {}),
+          },
+        },
+      ],
+    }))
+  );
+
+  const sarifReport = {
+    $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
+    version: '2.1.0',
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: 'AppShield',
+            version: '1.0.0',
+            informationUri: 'https://github.com/yourusername/appshield',
+            rules: uniqueRules,
+          },
+        },
+        artifacts,
+        results: sarifResults,
+      },
+    ],
+  };
+
+  return JSON.stringify(sarifReport, null, 2);
+}
+
+function severityToSarifLevel(severity: Severity): string {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'error';
+    case 'medium':
+      return 'warning';
+    case 'low':
+      return 'note';
+    case 'info':
+      return 'none';
+  }
+}
+
+// ─── Markdown reporter ──────────────────────────────────────────────────────
+
+export function reportMarkdown(report: ScanReport): string {
+  const duration = (report.durationMs / 1000).toFixed(1);
+  let md = '';
+
+  md += `# 🛡️ AppShield Security Report\n\n`;
+  md += `**Project:** \`${escapeText(report.projectPath)}\`  \n`;
+  md += `**Files scanned:** ${report.totalFiles}  \n`;
+  md += `**Duration:** ${duration}s  \n`;
+  md += `**Generated:** ${new Date().toISOString()}\n\n`;
+
+  // Summary table
+  md += `| Severity | Count |\n`;
+  md += `|----------|-------|\n`;
+  md += `| 🔴 Critical | ${report.criticalCount} |\n`;
+  md += `| 🟡 High     | ${report.highCount} |\n`;
+  md += `| 🔵 Medium   | ${report.mediumCount} |\n`;
+  md += `| ⚪ Low      | ${report.lowCount} |\n`;
+  md += `| **Total**   | **${report.totalVulnerabilities}** |\n`;
+
+  if (report.suppressedCount && report.suppressedCount > 0) {
+    md += `\n> ℹ️ ${report.suppressedCount} finding(s) suppressed by baseline\n`;
+  }
+
+  md += `\n---\n\n`;
+
+  if (report.totalVulnerabilities === 0) {
+    md += `✅ **No vulnerabilities found!** Your code looks clean.\n`;
+    return md;
+  }
+
+  // Group by severity for table of contents
+  md += `## Findings by Severity\n\n`;
+
+  for (const result of report.results) {
+    for (const vuln of result.vulnerabilities) {
+      md += `### ${severityEmoji(vuln.severity)} ${vuln.severity.toUpperCase()}: ${escapeText(vuln.title)}\n\n`;
+      md += `- **File:** \`${escapeText(result.file)}\``;
+      if (vuln.line) md += ` (line ${vuln.line})`;
+      md += `\n`;
+      if (vuln.cwe) md += `- **CWE:** ${escapeText(vuln.cwe)}\n`;
+      if (vuln.owasp) md += `- **OWASP:** ${escapeText(vuln.owasp)}\n`;
+      md += `\n${escapeText(vuln.description)}\n\n`;
+
+      md += `<details>\n<summary>🔍 Vulnerable Code</summary>\n\n`;
+      md += `~~~\n${mdSanitizeFences(vuln.snippet)}\n~~~\n\n`;
+      md += `</details>\n\n`;
+
+      md += `<details>\n<summary>✅ Fixed Code</summary>\n\n`;
+      md += `~~~\n${mdSanitizeFences(vuln.fix)}\n~~~\n\n`;
+      md += `</details>\n\n`;
+
+      md += `---\n\n`;
+    }
+  }
+
+  return md;
+}
+
+function severityEmoji(severity: Severity): string {
+  switch (severity) {
+    case 'critical': return '🔴';
+    case 'high': return '🟡';
+    case 'medium': return '🔵';
+    case 'low': return '⚪';
+    case 'info': return 'ℹ️';
+  }
+}
+
+// ─── CSV reporter ───────────────────────────────────────────────────────────
+
+export function reportCSV(report: ScanReport): string {
+  const headers = [
+    'ID', 'Rule', 'Severity', 'Title', 'Description',
+    'File', 'Line', 'CWE', 'OWASP', 'Snippet', 'Fix',
+  ];
+  const rows: string[][] = [];
+
+  for (const result of report.results) {
+    for (const vuln of result.vulnerabilities) {
+      rows.push([
+        vuln.id,
+        vuln.rule,
+        vuln.severity,
+        csvEscape(vuln.title),
+        csvEscape(vuln.description),
+        result.file,
+        vuln.line?.toString() || '',
+        vuln.cwe || '',
+        vuln.owasp || '',
+        csvEscape(vuln.snippet),
+        csvEscape(vuln.fix),
+      ]);
+    }
+  }
+
+  // CSV header row + summary row
+  const headerRow = headers.join(',');
+  const dataRows = rows.map(row => row.map(cell => `"${cell}"`).join(','));
+
+  let csv = `# AppShield Security Report\n`;
+  csv += `# Project: ${csvEscape(report.projectPath)}\n`;
+  csv += `# Files scanned: ${report.totalFiles}\n`;
+  csv += `# Duration: ${(report.durationMs / 1000).toFixed(1)}s\n`;
+  csv += `# Critical: ${report.criticalCount}, High: ${report.highCount}, Medium: ${report.mediumCount}, Low: ${report.lowCount}\n`;
+  if (report.suppressedCount && report.suppressedCount > 0) {
+    csv += `# Suppressed by baseline: ${report.suppressedCount}\n`;
+  }
+  csv += `${headerRow}\n`;
+  csv += dataRows.join('\n');
+  csv += '\n';
+
+  return csv;
+}
+
+function csvEscape(text: string): string {
+  return text.replace(/"/g, '""').replace(/\n/g, ' ');
+}
+
+// ─── JUnit XML reporter (CI integration) ────────────────────────────────────
+
+export function reportJUnit(report: ScanReport): string {
+  const duration = (report.durationMs / 1000).toFixed(3);
+
+  let failures = 0;
+  let errors = 0;
+
+  const testCases: string[] = [];
+
+  for (const result of report.results) {
+    for (const vuln of result.vulnerabilities) {
+      const tcName = `${vuln.rule}.${vuln.id}`;
+      const className = result.file;
+      const severity = vuln.severity;
+
+      if (severity === 'critical' || severity === 'high') {
+        failures++;
+        testCases.push(
+          `    <testcase name="${escapeXml(tcName)}" classname="${escapeXml(className)}" time="0.0">\n` +
+          `      <failure message="${escapeXml(vuln.title)}" type="${escapeXml(severity)}">\n` +
+          `${escapeXml(vuln.description)}\n` +
+          `File: ${escapeXml(vuln.line ? `${result.file}:${vuln.line}` : result.file)}\n` +
+          `Fix: ${escapeXml(vuln.fix)}\n` +
+          `      </failure>\n` +
+          `    </testcase>`
+        );
+      } else if (severity === 'medium') {
+        errors++;
+        testCases.push(
+          `    <testcase name="${escapeXml(tcName)}" classname="${escapeXml(className)}" time="0.0">\n` +
+          `      <error message="${escapeXml(vuln.title)}" type="${escapeXml(severity)}">\n` +
+          `${escapeXml(vuln.description)}\n` +
+          `File: ${escapeXml(vuln.line ? `${result.file}:${vuln.line}` : result.file)}\n` +
+          `Fix: ${escapeXml(vuln.fix)}\n` +
+          `      </error>\n` +
+          `    </testcase>`
+        );
+      } else {
+        testCases.push(
+          `    <testcase name="${escapeXml(tcName)}" classname="${escapeXml(className)}" time="0.0" />`
+        );
+      }
+    }
+  }
+
+  // If no findings, create a single passing testcase
+  if (testCases.length === 0) {
+    testCases.push(
+      `    <testcase name="appshield.scan" classname="${escapeXml(report.projectPath)}" time="${duration}" />`
+    );
+  }
+
+  const xml = [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<testsuite name="AppShield Security Scan" tests="${Math.max(testCases.length, 1)}" failures="${failures}" errors="${errors}" time="${duration}" timestamp="${new Date().toISOString()}">`,
+    ...testCases,
+    `</testsuite>`,
+  ];
+
+  return xml.join('\n') + '\n';
+}
+
 // ─── HTML reporter ──────────────────────────────────────────────────────────
 
 export function reportHTML(report: ScanReport): string {
@@ -161,7 +448,7 @@ export function reportHTML(report: ScanReport): string {
   const vulnSections = report.results
     .map(result => {
       const vulnCards = result.vulnerabilities
-        .map((vuln, i) => {
+        .map((vuln) => {
           const refs: string[] = [];
           if (vuln.cwe) refs.push(vuln.cwe);
           if (vuln.owasp) refs.push(`OWASP ${vuln.owasp}`);
@@ -199,6 +486,10 @@ export function reportHTML(report: ScanReport): string {
         </details>`;
     })
     .join('');
+
+  const suppressedNote = report.suppressedCount && report.suppressedCount > 0
+    ? `<p class="suppressed-note">ℹ️ ${report.suppressedCount} finding(s) suppressed by baseline</p>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -238,6 +529,7 @@ export function reportHTML(report: ScanReport): string {
       margin-bottom: 0.5rem;
     }
     .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
+    .suppressed-note { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem; }
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -369,6 +661,8 @@ export function reportHTML(report: ScanReport): string {
       </div>
     </div>
 
+    ${suppressedNote}
+
     ${report.totalVulnerabilities === 0 ? '<p style="text-align:center;font-size:1.25rem;color:var(--green);margin:2rem 0">✓ No vulnerabilities found! Your code looks clean.</p>' : vulnSections}
 
     <div class="footer">
@@ -387,6 +681,27 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function escapeText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/** Replace ~~~ fences with '~~~' to avoid breaking markdown code blocks */
+function mdSanitizeFences(text: string): string {
+  return text.replace(/~~~/g, "'~~~'");
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 // ─── Rules table ────────────────────────────────────────────────────────────

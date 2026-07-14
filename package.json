@@ -13,7 +13,14 @@
     "lint": "eslint src/",
     "test": "jest"
   },
-  "keywords": ["security", "scanner", "cli", "vulnerability", "ai", "claude"],
+  "keywords": [
+    "security",
+    "scanner",
+    "cli",
+    "vulnerability",
+    "ai",
+    "claude"
+  ],
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -24,7 +31,10 @@
     "ora": "^5.4.1"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.17.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
     "typescript": "^5.7.0"
   }
 }

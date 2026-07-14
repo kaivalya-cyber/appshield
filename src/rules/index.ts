@@ -6,6 +6,13 @@ import { authRule } from './auth';
 import { idorRule } from './idor';
 import { injectionRule } from './injection';
 import { headersRule } from './headers';
+import { csrfRule } from './csrf';
+import { ssrfRule } from './ssrf';
+import { openRedirectRule } from './open_redirect';
+import { prototypePollutionRule } from './prototype_pollution';
+import { redosRule } from './redos';
+import { weakCryptoRule } from './weak_crypto';
+import { insecureDeserializationRule } from './insecure_deserialization';
 
 export const allRules: Rule[] = [
   sqlInjectionRule,
@@ -15,6 +22,13 @@ export const allRules: Rule[] = [
   idorRule,
   injectionRule,
   headersRule,
+  csrfRule,
+  ssrfRule,
+  openRedirectRule,
+  prototypePollutionRule,
+  redosRule,
+  weakCryptoRule,
+  insecureDeserializationRule,
 ];
 
 export function getRuleById(id: string): Rule | undefined {
@@ -41,4 +55,11 @@ export {
   idorRule,
   injectionRule,
   headersRule,
+  csrfRule,
+  ssrfRule,
+  openRedirectRule,
+  prototypePollutionRule,
+  redosRule,
+  weakCryptoRule,
+  insecureDeserializationRule,
 };
