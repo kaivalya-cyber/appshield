@@ -36,7 +36,7 @@
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7",
-    "ora": "^5.4.1"
+    "ora": "^9.4.1"
   },
   "devDependencies": {
     "@types/chokidar": "^1.7.5",
