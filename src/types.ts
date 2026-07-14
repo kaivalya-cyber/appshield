@@ -62,6 +62,7 @@ export interface ScanOptions {
   incremental?: boolean;       // Only scan files changed since last scan
   quiet: boolean;              // Suppress progress output, only show report
   watch?: boolean;             // Watch for file changes and re-scan
+  remote?: string;             // Git URL to clone and scan (tempdir, auto-cleanup)
 }
 
 export interface AppShieldConfig {

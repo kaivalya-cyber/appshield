@@ -2,8 +2,10 @@
 
 import { config } from 'dotenv';
 import { resolve, join, extname, basename } from 'path';
+import { tmpdir } from 'os';
 import { existsSync, statSync } from 'fs';
-import { writeFile, readFile } from 'fs/promises';
+import { execSync } from 'child_process';
+import { writeFile, readFile, rm } from 'fs/promises';
 import { createHash } from 'crypto';
 import { Command } from 'commander';
 import chalk from 'chalk';
@@ -62,11 +64,16 @@ program
   .option('--ext <extensions>', 'Comma-separated file extensions to scan (e.g. .ts,.js)')
   .option('--preset <name>', 'Ruleset preset: owasp-top10, critical-only, web-app')
   .option('-w, --watch', 'Watch for file changes and re-scan', false)
+  .option('--remote <url>', 'Clone a git repo to temp dir, scan it, then clean up')
   .action(async (targetPath: string, opts: any) => {
+    // Set up effective target (may change for remote scans)
+    let remoteDir: string | undefined;
+    let effectiveTarget = targetPath;
+
     // ─── Load .appshield.json config ──────────────────────────────────────
     let config: Partial<AppShieldConfig> = {};
     try {
-      const targetAbs = resolve(targetPath);
+      const targetAbs = resolve(effectiveTarget);
       const isDir = existsSync(targetAbs) && statSync(targetAbs).isDirectory();
 
       const targetConfigPath = join(targetAbs, '.appshield.json');
@@ -118,6 +125,7 @@ program
       incremental: opts.incremental || false,
       quiet: opts.quiet || false,
       watch: opts.watch || false,
+      remote: opts.remote || undefined,
     };
 
     // Validate output format
@@ -136,6 +144,27 @@ program
     if (options.concurrency < 1 || options.concurrency > 10) {
       console.error(chalk.red('❌ Concurrency must be between 1 and 10.'));
       process.exit(1);
+    }
+
+    // Remote scan: clone repo to tempdir
+    if (opts.remote) {
+      remoteDir = join(tmpdir(), `appshield-remote-${Date.now()}`);
+      if (!opts.quiet) {
+        console.log(chalk.gray(`  📦 Cloning ${opts.remote}...`));
+      }
+      try {
+        execSync(`git clone --depth 1 ${opts.remote} ${remoteDir}`, {
+          stdio: opts.quiet ? 'pipe' : 'inherit',
+          timeout: 60000,
+        });
+        effectiveTarget = remoteDir;
+      } catch (err: any) {
+        console.error(chalk.red(`❌ Failed to clone ${opts.remote}: ${err.message}`));
+        if (remoteDir) {
+          try { await rm(remoteDir, { recursive: true, force: true }); } catch {}
+        }
+        process.exit(1);
+      }
     }
 
     // Show banner (unless JSON/SARIF/CSV/JUnit output or quiet mode)
@@ -163,7 +192,7 @@ program
       : ora({ text: 'Initializing scan...', color: 'cyan' }).start();
 
     try {
-      const report = await scan(targetPath, options, (message) => {
+      const report = await scan(effectiveTarget, options, (message) => {
         if (spinner) {
           spinner.text = message;
         }
@@ -212,7 +241,7 @@ program
 
       // Write fixed files if --fix flag is set
       if (options.fix && report.totalVulnerabilities > 0) {
-        const basePath = resolve(targetPath);
+        const basePath = resolve(effectiveTarget);
         const writtenFiles = await writeFixedFiles(report, basePath);
         if (writtenFiles.length > 0) {
           console.log(chalk.green.bold(`\n  ✓ Patched ${writtenFiles.length} file(s):`));
@@ -223,6 +252,12 @@ program
         }
       }
 
+      // Clean up remote temp dir
+      if (remoteDir) {
+        try { await rm(remoteDir, { recursive: true, force: true }); } catch {}
+        if (!options.quiet) console.log(chalk.gray('  🧹 Cleaned up cloned repo.'));
+      }
+
       // CI mode: exit with code 1 if vulnerabilities found
       if (options.ci && report.totalVulnerabilities > 0) {
         process.exit(1);
@@ -230,7 +265,7 @@ program
 
       // ─── Watch mode: re-scan on file changes (debounced) ───────────
       if (options.watch) {
-        const targetAbs = resolve(targetPath);
+        const targetAbs = resolve(effectiveTarget);
         const isDir = statSync(targetAbs).isDirectory();
         const targetBasename = isDir ? null : basename(targetAbs);
         const watchDir = isDir ? targetAbs : resolve(targetAbs, '..');
@@ -268,7 +303,7 @@ program
             console.log(chalk.gray('  Re-scanning...\n'));
 
             try {
-              const newReport = await scan(targetPath, options, (msg) => {
+              const newReport = await scan(effectiveTarget, options, (msg) => {
                 if (!options.quiet) console.log(chalk.gray(`  ${msg}`));
               });
 
@@ -293,6 +328,10 @@ program
       }
 
     } catch (error: any) {
+      // Clean up remote temp dir on error too
+      if (remoteDir) {
+        try { await rm(remoteDir, { recursive: true, force: true }); } catch {}
+      }
       spinner?.fail('Scan failed');
       console.error(chalk.red(`\n  ❌ ${error.message}\n`));
       if (options.debug && error.stack) {
