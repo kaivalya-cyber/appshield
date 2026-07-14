@@ -2,7 +2,7 @@
 
 import { config } from 'dotenv';
 import { resolve, join, extname, basename } from 'path';
-import { existsSync, statSync, watch } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { writeFile, readFile } from 'fs/promises';
 import { createHash } from 'crypto';
 import { Command } from 'commander';
@@ -11,6 +11,7 @@ import ora from 'ora';
 import { ScanOptions, AppShieldConfig } from './types';
 import { scan, writeFixedFiles } from './scanner';
 import { resolvePreset } from './rules';
+import chokidar from 'chokidar';
 import {
   reportTerminal,
   reportJSON,
@@ -235,24 +236,26 @@ program
         const watchDir = isDir ? targetAbs : resolve(targetAbs, '..');
 
         console.log(chalk.gray(`\n  👀 Watching for changes in ${watchDir}...`));
-        if (process.platform === 'darwin' || process.platform === 'linux') {
-          console.log(chalk.gray('  Note: subdirectory watching may be limited. Use polling for full support.'));
-        }
         console.log(chalk.gray('  Press Ctrl+C to stop.\n'));
 
         // Debounce: wait 2s after last change before re-scanning
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
         let scanning = false;
 
-        watch(watchDir, { recursive: true }, (_event, filename) => {
-          if (!filename) return;
+        const watcher = chokidar.watch(watchDir, {
+          ignored: /(^|[/\\])\./,
+          persistent: true,
+          ignoreInitial: true,
+        });
+
+        const handleChange = (filename: string) => {
 
           // Filter by extension
           const ext = extname(filename).toLowerCase();
           if (options.extensions.length > 0 && !options.extensions.includes(ext)) return;
 
           // For single-file watch, ignore changes to other files
-          if (!isDir && filename !== targetBasename) return;
+          if (!isDir && basename(filename) !== targetBasename) return;
 
           // Reset debounce timer
           if (debounceTimer) clearTimeout(debounceTimer);
@@ -280,7 +283,10 @@ program
               scanning = false;
             }
           }, 2000); // 2-second debounce
-        });
+        };
+
+        watcher.on('change', handleChange);
+        watcher.on('add', handleChange);
 
         // Keep process alive
         await new Promise(() => {});
