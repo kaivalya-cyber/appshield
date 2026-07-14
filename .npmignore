@@ -1,0 +1,13 @@
+# Excluded from npm publish
+src/
+.husky/
+.github/
+coverage/
+jest.config.js
+tsconfig.json
+.versionrc.json
+.gitignore
+.env.example
+.DS_Store
+*.test.ts
+node_modules
