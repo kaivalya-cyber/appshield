@@ -1,0 +1,105 @@
+name: Self-Scan (Dogfooding)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'examples/**'
+
+jobs:
+  self-scan:
+    name: Scan own code
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install & build
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: Run AppShield on itself
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node dist/index.js scan ./src \
+            --ci \
+            --severity medium \
+            --output sarif \
+            --quiet \
+            > self-scan-results.sarif
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: self-scan-results.sarif
+          category: appshield-self-scan
+
+      - name: Comment findings summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            let summary = '';
+            try {
+              const sarifRaw = fs.readFileSync('self-scan-results.sarif', 'utf-8');
+              const sarif = JSON.parse(sarifRaw);
+              const results = sarif.runs?.[0]?.results || [];
+              const total = results.length;
+
+              if (total === 0) {
+                summary = '🛡️ **AppShield self-scan: No vulnerabilities found!**';
+              } else {
+                const byLevel = {};
+                for (const r of results) {
+                  byLevel[r.level] = (byLevel[r.level] || 0) + 1;
+                }
+                const parts = [];
+                if (byLevel.error) parts.push(`🔴 ${byLevel.error} errors`);
+                if (byLevel.warning) parts.push(`🟡 ${byLevel.warning} warnings`);
+                if (byLevel.note) parts.push(`🔵 ${byLevel.note} notes`);
+
+                summary = `🛡️ **AppShield self-scan found ${total} finding(s):** ${parts.join(', ')}`;
+              }
+            } catch {
+              summary = '⚠️ AppShield self-scan completed (see Code Scanning results).';
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            // Update existing bot comment or create new
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('AppShield self-scan')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: summary,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary,
+              });
+            }

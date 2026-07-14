@@ -40,8 +40,12 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^20.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.64.0",
+    "@typescript-eslint/parser": "^8.64.0",
+    "eslint": "^10.7.0",
     "husky": "^9.1.7",
     "jest": "^30.4.2",
+    "prettier": "^3.9.5",
     "standard-version": "^9.5.0",
     "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
