@@ -1,0 +1,25 @@
+{
+  "name": "AppShield Dev",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "orta.vscode-jest",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "jest.autoRun": "off"
+      }
+    }
+  },
+  "postCreateCommand": "npm ci --ignore-scripts && npm run build",
+  "postStartCommand": "echo '🛡️ AppShield dev environment ready! Run: npm test'",
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  }
+}
