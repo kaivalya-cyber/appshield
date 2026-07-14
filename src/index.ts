@@ -65,6 +65,7 @@ program
   .option('--preset <name>', 'Ruleset preset: owasp-top10, critical-only, web-app')
   .option('-w, --watch', 'Watch for file changes and re-scan', false)
   .option('--remote <url>', 'Clone a git repo to temp dir, scan it, then clean up')
+  .option('--remote-branch <branch>', 'Branch to checkout when using --remote (default: default branch)')
   .action(async (targetPath: string, opts: any) => {
     // Set up effective target (may change for remote scans)
     let remoteDir: string | undefined;
@@ -126,6 +127,7 @@ program
       quiet: opts.quiet || false,
       watch: opts.watch || false,
       remote: opts.remote || undefined,
+      remoteBranch: opts.remoteBranch || undefined,
     };
 
     // Validate output format
@@ -153,7 +155,8 @@ program
         console.log(chalk.gray(`  📦 Cloning ${opts.remote}...`));
       }
       try {
-        execSync(`git clone --depth 1 ${opts.remote} ${remoteDir}`, {
+        const branchFlag = opts.remoteBranch ? ` -b ${opts.remoteBranch}` : '';
+        execSync(`git clone --depth 1${branchFlag} ${opts.remote} ${remoteDir}`, {
           stdio: opts.quiet ? 'pipe' : 'inherit',
           timeout: 60000,
         });

@@ -63,6 +63,7 @@ export interface ScanOptions {
   quiet: boolean;              // Suppress progress output, only show report
   watch?: boolean;             // Watch for file changes and re-scan
   remote?: string;             // Git URL to clone and scan (tempdir, auto-cleanup)
+  remoteBranch?: string;       // Branch to checkout when using --remote (default: default branch)
 }
 
 export interface AppShieldConfig {

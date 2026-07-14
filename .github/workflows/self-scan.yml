@@ -6,6 +6,16 @@ on:
     paths:
       - 'src/**'
       - 'examples/**'
+  workflow_dispatch:
+    inputs:
+      remote:
+        description: 'Git URL to scan remotely'
+        required: false
+        type: string
+      branch:
+        description: 'Branch to scan (for remote repos)'
+        required: false
+        type: string
 
 jobs:
   self-scan:
@@ -26,11 +36,19 @@ jobs:
           npm ci --ignore-scripts
           npm run build
 
-      - name: Run AppShield on itself
+      - name: Run AppShield
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          node dist/index.js scan ./src \
+          if [ -n "${{ github.event.inputs.remote }}" ]; then
+            TARGET="--remote ${{ github.event.inputs.remote }}"
+            if [ -n "${{ github.event.inputs.branch }}" ]; then
+              TARGET="$TARGET --remote-branch ${{ github.event.inputs.branch }}"
+            fi
+          else
+            TARGET="./src"
+          fi
+          node dist/index.js scan $TARGET \
             --ci \
             --severity medium \
             --output sarif \
@@ -50,7 +68,6 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const path = require('path');
 
             let summary = '';
             try {
@@ -83,7 +100,6 @@ jobs:
               issue_number: context.issue.number,
             });
 
-            // Update existing bot comment or create new
             const botComment = comments.find(c =>
               c.user.type === 'Bot' && c.body.includes('AppShield self-scan')
             );
